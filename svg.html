@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SVG Drawing App with Fabric.js</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/4.5.0/fabric.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" rel="stylesheet">
+    <style>
+        canvas {
+            border: 1px solid #ccc;
+            display: block;
+            margin: auto; /* Center the canvas horizontally */
+            width: 80%; /* Set canvas width to 80% of the viewport */
+            height: 60vh; /* Set canvas height to 60% of the viewport height */
+        }
+        
+        /* Style for the "return to top" icon */
+        #return-to-top {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            background-color: #007bff;
+            color: #fff;
+            width: 40px;
+            height: 40px;
+            text-align: center;
+            line-height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            z-index: 9999;
+            display: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex flex-col items-center justify-center">
+    <div class="flex flex-wrap justify-center space-x-4 p-4">
+        <button id="brush-btn"><i class="fas fa-paint-brush mr-2"></i>Brush</button>
+        <button id="eraser-btn"><i class="fas fa-eraser mr-2"></i>Eraser</button>
+        <button id="select-btn"><i class="fas fa-mouse-pointer mr-2"></i>Select</button>
+        <button id="clear-btn"><i class="fas fa-trash-alt mr-2"></i>Clear All</button>
+        <button id="undo-btn"><i class="fas fa-undo-alt mr-2"></i>Undo</button>
+        <button id="redo-btn"><i class="fas fa-redo-alt mr-2"></i>Redo</button>
+        <label>
+            <i class="fas fa-file-image mr-2"></i>Upload Image
+            <input type="file" id="image-input" accept="image/*" style="display: none;">
+        </label>
+        <select id="shape-select">
+            <option value="rect">Rectangle</option>
+            <option value="circle">Circle</option>
+            <option value="triangle">Triangle</option>
+        </select>
+        <input type="text" id="text-input" placeholder="Enter text">
+        <button id="add-text-btn"><i class="fas fa-font mr-2"></i>Add Text</button>
+        <button id="update-svg-btn"><i class="fas fa-sync-alt mr-2"></i>Update SVG</button>
+        <button id="save-svg-btn"><i class="fas fa-download mr-2"></i>Save as SVG</button>
+    </div>
+    <div class="flex justify-center space-x-4 p-4">
+        <input type="color" id="color-picker">
+        <input type="range" id="brush-size-slider" min="1" max="10">
+    </div>
+    <canvas id="drawing-canvas" width="800" height="600"></canvas>
+    <textarea id="svg-code" rows="10" style="width: 100%;"></textarea>
+
+    <!-- "Return to top" icon -->
+    <div id="return-to-top">
+        <i class="fas fa-arrow-up"></i>
+    </div>
+
+    <script>
+        const canvas = new fabric.Canvas('drawing-canvas', {
+            backgroundColor: '#fff'
+        });
+
+        const svgCodeTextArea = document.getElementById('svg-code');
+        let undoList = [];
+        let redoList = [];
+
+        function updateSVG() {
+            canvas.toSVG({ }, function (svg) {
+                svgCodeTextArea.value = svg;
+            });
+        }
+
+        function updateHistory() {
+            undoList.push(JSON.stringify(canvas));
+            redoList = [];
+        }
+
+        function undo() {
+            if (undoList.length > 1) {
+                redoList.push(undoList.pop());
+                const currentState = JSON.parse(undoList[undoList.length - 1]);
+                canvas.loadFromJSON(currentState);
+                updateSVG();
+            }
+        }
+
+        function redo() {
+            if (redoList.length > 0) {
+                const nextState = JSON.parse(redoList.pop());
+                canvas.loadFromJSON(nextState);
+                undoList.push(JSON.stringify(nextState));
+                updateSVG();
+            }
+        }
+
+        document.getElementById('undo-btn').addEventListener('click', undo);
+        document.getElementById('redo-btn').addEventListener('click', redo);
+
+        canvas.on('object:added', updateHistory);
+        canvas.on('object:modified', updateHistory);
+        canvas.on('object:removed', updateHistory);
+
+        // Add drawing tools
+        const brush = new fabric.PencilBrush(canvas);
+        const eraser = new fabric.PencilBrush(canvas);
+        eraser.color = '#ffffff'; // Eraser color
+
+        document.getElementById('brush-btn').addEventListener('click', () => {
+            canvas.freeDrawingBrush = brush;
+            brush.color = canvas.freeDrawingBrush.color;
+            canvas.isDrawingMode = true;
+        });
+
+        document.getElementById('eraser-btn').addEventListener('click', () => {
+            canvas.freeDrawingBrush = eraser;
+            canvas.isDrawingMode = true;
+        });
+
+        document.getElementById('select-btn').addEventListener('click', () => {
+            canvas.isDrawingMode = false;
+        });
+
+        document.getElementById('clear-btn').addEventListener('click', () => {
+            canvas.clear();
+            updateSVG();
+            updateHistory();
+        });
+
+        document.getElementById('color-picker').addEventListener('change', () => {
+            const color = document.getElementById('color-picker').value;
+            canvas.freeDrawingBrush.color = color;
+            if (!canvas.isDrawingMode && canvas.getActiveObject()) {
+                canvas.getActiveObject().set('fill', color);
+                canvas.renderAll();
+            }
+        });
+
+        const brushSizeSlider = document.getElementById('brush-size-slider');
+        if (brushSizeSlider) {
+            brushSizeSlider.addEventListener('input', () => {
+                const size = brushSizeSlider.value;
+                canvas.freeDrawingBrush.width = parseInt(size, 10) || 1;
+            });
+        }
+
+        document.getElementById('image-input').addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (f) => {
+                    const data = f.target.result;
+                    fabric.Image.fromURL(data, img => {
+                        canvas.add(img);
+                        updateSVG();
+                        updateHistory();
+                    });
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        document.getElementById('shape-select').addEventListener('change', (e) => {
+            const shapeType = e.target.value;
+            let shape;
+            switch (shapeType) {
+                case 'rect':
+                    shape = new fabric.Rect({
+                        left: 100,
+                        top: 100,
+                        width: 100,
+                        height: 100,
+                        fill: 'transparent',
+                        stroke: 'black',
+                        strokeWidth: 2
+                    });
+                    break;
+                case 'circle':
+                    shape = new fabric.Circle({
+                        left: 100,
+                        top: 100,
+                        radius: 50,
+                        fill: 'transparent',
+                        stroke: 'black',
+                        strokeWidth: 2
+                    });
+                    break;
+                case 'triangle':
+                    shape = new fabric.Triangle({
+                        left: 100,
+                        top: 100,
+                        width: 100,
+                        height: 100,
+                        fill: 'transparent',
+                        stroke: 'black',
+                        strokeWidth: 2
+                    });
+                    break;
+                default:
+                    return;
+            }
+            canvas.add(shape);
+            updateSVG();
+            updateHistory();
+        });
+
+        document.getElementById('add-text-btn').addEventListener('click', () => {
+            const text = document.getElementById('text-input').value;
+            if (text) {
+                const textbox = new fabric.Textbox(text, {
+                    left: 100,
+                    top: 100,
+                    fill: 'black',
+                    fontSize: 20
+                });
+                canvas.add(textbox);
+                updateSVG();
+                updateHistory();
+            }
+        });
+
+        document.getElementById('update-svg-btn').addEventListener('click', updateSVG);
+
+        document.getElementById('save-svg-btn').addEventListener('click', () => {
+            const svgContent = svgCodeTextArea.value;
+            const blob = new Blob([svgContent], { type: "image/svg+xml" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "drawing.svg";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        });
+
+        // Load SVG onto canvas
+        function loadSVG() {
+            const svgCode = svgCodeTextArea.value;
+            fabric.loadSVGFromString(svgCode, (objects, options) => {
+                const obj = fabric.util.groupSVGElements(objects, options);
+                canvas.clear();
+                canvas.add(obj).renderAll();
+            });
+        }
+
+        document.getElementById('update-svg-btn').addEventListener('click', loadSVG);
+
+        // JavaScript code for scrolling to the top
+        document.addEventListener('DOMContentLoaded', function() {
+            var returnToTop = document.getElementById('return-to-top');
+
+            window.addEventListener('scroll', function() {
+                if (window.pageYOffset > 100) {
+                    // If user has scrolled down 100px or more, show the "return to top" icon
+                    returnToTop.style.display = 'block';
+                } else {
+                    // Otherwise, hide the icon
+                    returnToTop.style.display = 'none';
+                }
+            });
+
+            returnToTop.addEventListener('click', function() {
+                // When the icon is clicked, scroll back to the top of the page smoothly
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            });
+        });
+    </script>
+</body>
+</html>
